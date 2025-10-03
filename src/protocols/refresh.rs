@@ -544,7 +544,8 @@ impl Party {
 
             derivation_data,
 
-            eth_address: self.eth_address.clone(),
+            network: self.network.clone(),
+            btc_address: self.btc_address.clone(),
         };
 
         Ok(party)
@@ -926,7 +927,8 @@ impl Party {
 
             derivation_data,
 
-            eth_address: self.eth_address.clone(),
+            network: self.network.clone(),
+            btc_address: self.btc_address.clone(),
         };
 
         Ok(party)

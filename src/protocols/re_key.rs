@@ -16,7 +16,7 @@ use crate::utilities::rng;
 use rand::Rng;
 
 use crate::protocols::derivation::{ChainCode, DerivData};
-use crate::protocols::dkg::compute_eth_address;
+use crate::protocols::dkg::compute_bitcoin_address;
 use crate::protocols::{Parameters, Party};
 
 use crate::utilities::hashes::HashOutput;
@@ -214,7 +214,8 @@ pub fn re_key(
             mul_senders: all_mul_senders[(index - 1) as usize].clone(),
             mul_receivers: all_mul_receivers[(index - 1) as usize].clone(),
             derivation_data,
-            eth_address: compute_eth_address(&pk),
+            network: crate::protocols::Network::Mainnet, // Default to mainnet
+            btc_address: compute_bitcoin_address(&pk, &crate::protocols::Network::Mainnet),
         });
     }
 

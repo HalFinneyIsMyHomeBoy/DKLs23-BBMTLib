@@ -846,7 +846,8 @@ pub fn phase4(
         chain_code,
     };
 
-    let eth_address = compute_eth_address(&pk); // We compute the Ethereum address.
+    let network = crate::protocols::Network::Mainnet; // Default to mainnet
+    let btc_address = compute_bitcoin_address(&pk, &network); // We compute the Bitcoin address.
 
     let party = Party {
         parameters: data.parameters.clone(),
@@ -863,10 +864,45 @@ pub fn phase4(
 
         derivation_data,
 
-        eth_address,
+        network,
+        btc_address,
     };
 
     Ok(party)
+}
+
+/// Computes the Bitcoin address given a public key and network (P2PKH format).
+#[must_use]
+pub fn compute_bitcoin_address(pk: &AffinePoint, network: &crate::protocols::Network) -> String {
+    use bitcoin_hashes::sha256;
+    
+    // Serialize the public key in compressed form
+    let compressed_pk = pk.to_encoded_point(true);
+    
+    // Compute SHA256 hash of the public key
+    let sha256_hash = sha256::Hash::hash(compressed_pk.as_bytes());
+    
+    // Compute RIPEMD160 hash of the SHA256 hash
+    let ripemd160_hash = ripemd::Ripemd160::digest(sha256_hash.as_byte_array());
+    
+    // Add version byte based on network
+    let version_byte = match network {
+        crate::protocols::Network::Mainnet => 0x00,  // Mainnet P2PKH
+        crate::protocols::Network::Testnet3 => 0x6f, // Testnet3 P2PKH
+    };
+    
+    let mut address_bytes = vec![version_byte];
+    address_bytes.extend_from_slice(&ripemd160_hash);
+    
+    // Compute double SHA256 checksum
+    let first_hash = sha256::Hash::hash(&address_bytes);
+    let checksum = sha256::Hash::hash(first_hash.as_byte_array());
+    
+    // Take first 4 bytes of checksum and append to address
+    address_bytes.extend_from_slice(&checksum.as_byte_array()[..4]);
+    
+    // Encode as Base58
+    bs58::encode(&address_bytes).into_string()
 }
 
 /// Computes the Ethereum address given a public key.
