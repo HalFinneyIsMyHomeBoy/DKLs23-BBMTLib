@@ -10,6 +10,15 @@ use crate::protocols::derivation::DerivData;
 use crate::utilities::multiplication::{MulReceiver, MulSender};
 use crate::utilities::zero_shares::ZeroShare;
 
+/// Bitcoin network types for address generation.
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub enum Network {
+    /// Bitcoin mainnet (addresses start with '1')
+    Mainnet,
+    /// Bitcoin testnet3 (addresses start with 'm' or 'n')
+    Testnet3,
+}
+
 pub mod derivation;
 pub mod dkg;
 pub mod re_key;
@@ -46,8 +55,11 @@ pub struct Party {
     /// Data for BIP-32 derivation.
     pub derivation_data: DerivData,
 
-    /// Ethereum address calculated from the public key.
-    pub eth_address: String,
+    /// Bitcoin network used for address generation.
+    pub network: Network,
+
+    /// Bitcoin address calculated from the public key.
+    pub btc_address: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

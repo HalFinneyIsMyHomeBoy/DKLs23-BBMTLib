@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use crate::protocols::Party;
 use crate::utilities::hashes::point_to_bytes;
 
-use super::dkg::compute_eth_address;
+use super::dkg::compute_bitcoin_address;
 
 /// Fingerprint of a key as in BIP-32.
 ///
@@ -202,7 +202,7 @@ impl Party {
 
         // We don't change information relating other parties,
         // we only update our key share, our public key and the address.
-        let new_address = compute_eth_address(&new_derivation_data.pk);
+        let new_address = compute_bitcoin_address(&new_derivation_data.pk, &self.network);
 
         Ok(Party {
             parameters: self.parameters.clone(),
@@ -219,7 +219,8 @@ impl Party {
 
             derivation_data: new_derivation_data,
 
-            eth_address: new_address,
+            network: self.network.clone(),
+            btc_address: new_address,
         })
     }
 
@@ -238,7 +239,7 @@ impl Party {
 
         // We don't change information relating other parties,
         // we only update our key share, our public key and the address.
-        let new_address = compute_eth_address(&new_derivation_data.pk);
+        let new_address = compute_bitcoin_address(&new_derivation_data.pk, &self.network);
 
         Ok(Party {
             parameters: self.parameters.clone(),
@@ -255,7 +256,8 @@ impl Party {
 
             derivation_data: new_derivation_data,
 
-            eth_address: new_address,
+            network: self.network.clone(),
+            btc_address: new_address,
         })
     }
 }
