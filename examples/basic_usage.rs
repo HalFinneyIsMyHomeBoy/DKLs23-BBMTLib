@@ -1,7 +1,7 @@
 //! Basic usage example of the DKLs23 Threshold ECDSA library.
 //! 
 //! This example demonstrates:
-//! 1. Setting up a threshold signature scheme (2-of-3)
+//! 1. Setting up a threshold signature scheme (3-of-5)
 //! 2. Performing distributed key generation (DKG)
 //! 3. Creating a threshold signature
 //! 4. Verifying the signature
@@ -17,10 +17,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔐 DKLs23 Threshold ECDSA Example");
     println!("=================================");
 
-    // Step 1: Set up parameters for a 2-of-3 threshold scheme
+    // Step 1: Set up parameters for a 3-of-5 threshold scheme
     let parameters = Parameters {
-        threshold: 2,      // Need 2 parties to sign
-        share_count: 3,    // Total of 3 parties
+        threshold: 3,      // Need 3 parties to sign
+        share_count: 5,    // Total of 5 parties
     };
     
     println!("📋 Parameters: {}-of-{} threshold scheme", parameters.threshold, parameters.share_count);
@@ -186,8 +186,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let sign_id = b"signing_session_2024".to_vec();
     
-    // Select 2 parties to participate in signing (threshold = 2)
-    let executing_parties: Vec<u8> = vec![1, 2]; // Parties 1 and 2 will sign
+    // Select 3 parties to participate in signing (threshold = 3)
+    let executing_parties: Vec<u8> = vec![1, 2, 3]; // Parties 1, 2, and 3 will sign
     
     // Prepare signing data for each participating party
     let mut all_sign_data: BTreeMap<u8, SignData> = BTreeMap::new();
