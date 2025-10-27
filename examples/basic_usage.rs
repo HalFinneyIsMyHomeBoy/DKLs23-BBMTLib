@@ -31,6 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 3: Simulate Distributed Key Generation (DKG)
     println!("\n🔑 Starting Distributed Key Generation...");
+    println!("   Creating session data for {} parties...", parameters.share_count);
     
     // Create session data for each party
     let mut all_data: Vec<SessionData> = Vec::new();
@@ -41,23 +42,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             session_id: session_id.clone(),
         });
     }
+    println!("   ✅ Session data created");
 
     // Phase 1: Each party generates polynomial fragments
+    println!("\n   📊 Phase 1: Generating polynomial fragments (this may take a while)...");
     let mut dkg_1: Vec<Vec<k256::Scalar>> = Vec::new();
     for i in 0..parameters.share_count {
+        print!("   🔄 Processing party {}/{}...", i + 1, parameters.share_count);
+        std::io::Write::flush(&mut std::io::stdout()).unwrap();
         let out1 = phase1(&all_data[i as usize]);
         dkg_1.push(out1);
+        println!("\r   ✅ Party {}/{} completed", i + 1, parameters.share_count);
     }
 
     // Communication round 1: Exchange polynomial fragments
+    print!("   📡 Communication round 1: Exchanging polynomial fragments...");
+    std::io::Write::flush(&mut std::io::stdout()).unwrap();
     let mut poly_fragments = vec![Vec::<k256::Scalar>::new(); parameters.share_count as usize];
     for row_i in dkg_1 {
         for j in 0..parameters.share_count {
             poly_fragments[j as usize].push(row_i[j as usize]);
         }
     }
+    println!(" ✅ Complete");
 
     // Phase 2: Generate proofs and commitments
+    println!("   📊 Phase 2: Generating proofs and commitments...");
     let mut poly_points: Vec<k256::Scalar> = Vec::new();
     let mut proofs_commitments: Vec<ProofCommitment> = Vec::new();
     let mut zero_kept_2to3: Vec<BTreeMap<u8, KeepInitZeroSharePhase2to3>> = Vec::new();
@@ -66,6 +76,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut bip_broadcast_2to4: BTreeMap<u8, BroadcastDerivationPhase2to4> = BTreeMap::new();
     
     for i in 0..parameters.share_count {
+        print!("   🔄 Processing party {}/{}...", i + 1, parameters.share_count);
+        std::io::Write::flush(&mut std::io::stdout()).unwrap();
         let (out1, out2, out3, out4, out5, out6) = phase2(&all_data[i as usize], &poly_fragments[i as usize]);
         poly_points.push(out1);
         proofs_commitments.push(out2);
@@ -73,9 +85,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         zero_transmit_2to4.push(out4);
         bip_kept_2to3.push(out5);
         bip_broadcast_2to4.insert(i + 1, out6);
+        println!("\r   ✅ Party {}/{} completed", i + 1, parameters.share_count);
     }
 
     // Communication round 2: Exchange zero share commitments
+    print!("   📡 Communication round 2: Exchanging zero share commitments...");
+    std::io::Write::flush(&mut std::io::stdout()).unwrap();
     let mut zero_received_2to4: Vec<Vec<TransmitInitZeroSharePhase2to4>> = Vec::new();
     for i in 1..=parameters.share_count {
         let mut new_row: Vec<TransmitInitZeroSharePhase2to4> = Vec::new();
@@ -88,8 +103,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         zero_received_2to4.push(new_row);
     }
+    println!(" ✅ Complete");
 
     // Phase 3: Continue initialization
+    println!("   📊 Phase 3: Continuing initialization...");
     let mut zero_kept_3to4: Vec<BTreeMap<u8, KeepInitZeroSharePhase3to4>> = Vec::new();
     let mut zero_transmit_3to4: Vec<Vec<TransmitInitZeroSharePhase3to4>> = Vec::new();
     let mut mul_kept_3to4: Vec<BTreeMap<u8, KeepInitMulPhase3to4>> = Vec::new();
@@ -97,6 +114,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut bip_broadcast_3to4: BTreeMap<u8, BroadcastDerivationPhase3to4> = BTreeMap::new();
     
     for i in 0..parameters.share_count {
+        print!("   🔄 Processing party {}/{}...", i + 1, parameters.share_count);
+        std::io::Write::flush(&mut std::io::stdout()).unwrap();
         let (out1, out2, out3, out4, out5) = phase3(
             &all_data[i as usize],
             &zero_kept_2to3[i as usize],
@@ -107,9 +126,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         mul_kept_3to4.push(out3);
         mul_transmit_3to4.push(out4);
         bip_broadcast_3to4.insert(i + 1, out5);
+        println!("\r   ✅ Party {}/{} completed", i + 1, parameters.share_count);
     }
 
     // Communication round 3: Exchange final initialization data
+    print!("   📡 Communication round 3: Exchanging final initialization data...");
+    std::io::Write::flush(&mut std::io::stdout()).unwrap();
     let mut zero_received_3to4: Vec<Vec<TransmitInitZeroSharePhase3to4>> = Vec::new();
     let mut mul_received_3to4: Vec<Vec<TransmitInitMulPhase3to4>> = Vec::new();
     
@@ -136,10 +158,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         zero_received_3to4.push(zero_row);
         mul_received_3to4.push(mul_row);
     }
+    println!(" ✅ Complete");
 
     // Phase 4: Complete DKG and create parties
+    println!("   📊 Phase 4: Completing DKG and creating parties...");
     let mut parties: Vec<Party> = Vec::new();
     for i in 0..parameters.share_count {
+        print!("   🔄 Processing party {}/{}...", i + 1, parameters.share_count);
+        std::io::Write::flush(&mut std::io::stdout()).unwrap();
         let result = phase4(
             &all_data[i as usize],
             &poly_points[i as usize],
@@ -155,12 +181,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         
         match result {
             Err(abort) => {
-                eprintln!("❌ Party {} aborted: {}", abort.index, abort.description);
+                eprintln!("\n   ❌ Party {} aborted: {}", abort.index, abort.description);
                 return Err(format!("DKG failed: {}", abort.description).into());
             }
             Ok(party) => {
                 parties.push(party);
-                println!("✅ Party {} completed DKG", i + 1);
+                println!("\r   ✅ Party {}/{} completed", i + 1, parameters.share_count);
             }
         }
     }
