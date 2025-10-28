@@ -7,6 +7,7 @@
 
 pub mod protocols;
 pub mod utilities;
+pub mod facade;
 
 // The following constants should not be changed!
 // They are the same as the reference implementation of DKLs19:

@@ -871,7 +871,7 @@ pub fn phase4(
     Ok(party)
 }
 
-/// Computes the Bitcoin address given a public key and network (P2PKH format).
+/// Computes the Bitcoin address given a public key and network (Native SegWit P2WPKH format).
 #[must_use]
 pub fn compute_bitcoin_address(pk: &AffinePoint, network: &crate::protocols::Network) -> String {
     use bitcoin_hashes::sha256;
@@ -885,24 +885,36 @@ pub fn compute_bitcoin_address(pk: &AffinePoint, network: &crate::protocols::Net
     // Compute RIPEMD160 hash of the SHA256 hash
     let ripemd160_hash = ripemd::Ripemd160::digest(sha256_hash.as_byte_array());
     
-    // Add version byte based on network
-    let version_byte = match network {
-        crate::protocols::Network::Mainnet => 0x00,  // Mainnet P2PKH
-        crate::protocols::Network::Testnet3 => 0x6f, // Testnet3 P2PKH
+    // For native SegWit P2WPKH:
+    // - Witness version: 0
+    // - Witness program: 20-byte RIPEMD160 hash
+    let witness_version = 0u8;
+    let witness_program: &[u8; 20] = &ripemd160_hash.into();
+    
+    // Prepare data for base32 encoding
+    // First byte is witness version, followed by witness program
+    let mut data = Vec::with_capacity(21);
+    data.push(witness_version);
+    data.extend_from_slice(witness_program);
+    
+    // Convert bytes to base32
+    // convert_bits converts from 8-bit bytes to 5-bit base32 chunks
+    let base32_vec = bech32::convert_bits(&data, 8, 5, true).unwrap();
+    
+    // Set the prefix based on network
+    let hrp = match network {
+        crate::protocols::Network::Mainnet => "bc",
+        crate::protocols::Network::Testnet3 => "tb",
     };
     
-    let mut address_bytes = vec![version_byte];
-    address_bytes.extend_from_slice(&ripemd160_hash);
+    // Encode as bech32
+    // bech32::encode expects &[u5] but convert_bits returns Vec<u8>
+    // We need to convert Vec<u8> to Vec<u5> by wrapping each byte
+    let base32_data: Vec<bech32::u5> = base32_vec.iter().map(|b| bech32::u5::try_from_u8(*b).unwrap()).collect();
+    let address = bech32::encode(hrp, &base32_data, bech32::Variant::Bech32)
+        .expect("bech32 encoding failed");
     
-    // Compute double SHA256 checksum
-    let first_hash = sha256::Hash::hash(&address_bytes);
-    let checksum = sha256::Hash::hash(first_hash.as_byte_array());
-    
-    // Take first 4 bytes of checksum and append to address
-    address_bytes.extend_from_slice(&checksum.as_byte_array()[..4]);
-    
-    // Encode as Base58
-    bs58::encode(&address_bytes).into_string()
+    address
 }
 
 /// Computes the Ethereum address given a public key.
