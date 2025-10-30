@@ -31,6 +31,7 @@ Note: The `--quiet` flag must come before the subcommand (`dkg` or `sign`).
 - `--session-id <hex>`: Session ID as hex-encoded string (default: empty)
 - `--network <network>`: Network type: "mainnet" or "testnet3" (default: "mainnet")
 - `--quiet`: Suppress progress output (only output JSON)
+- `--partynpubs <npub1,npub2,...>`: Comma-separated npubs mapped to party indices 1..n
 
 **Example:**
 ```bash
@@ -39,6 +40,12 @@ dkls23-cli dkg --threshold 2 --share-count 3 --session-id 0a1b2c3d
 
 # With quiet (only JSON output)
 dkls23-cli --quiet dkg --threshold 2 --share-count 3 --session-id 0a1b2c3d
+
+# With npubs (indexes 1..n map to the provided order)
+dkls23-cli --quiet dkg \
+  --threshold 2 --share-count 3 \
+  --session-id 0a1b2c3d \
+  --partynpubs "npubAAA,npubBBB,npubCCC"
 ```
 
 **Output (JSON):**
@@ -47,23 +54,39 @@ dkls23-cli --quiet dkg --threshold 2 --share-count 3 --session-id 0a1b2c3d
   "success": true,
   "parties": [
     {
-      "parameters": {
-        "threshold": 2,
-        "share_count": 3
-      },
+      "parameters": { "threshold": 2, "share_count": 3 },
       "party_index": 1,
-      "session_id": [...],
-      "btc_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+      "session_id": [ ... ],
+      "pk": "...",
+      "btc_address": "1A1zP1e...",
       "network": "Mainnet",
-      ...
+      "npub": "npubAAA"
     },
-    ...
+    {
+      "parameters": { "threshold": 2, "share_count": 3 },
+      "party_index": 2,
+      "session_id": [ ... ],
+      "pk": "...",
+      "btc_address": "1A1zP1e...",
+      "network": "Mainnet",
+      "npub": "npubBBB"
+    }
   ],
-  "bitcoin_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+  "party_count": 3,
+  "bitcoin_address": "1A1zP1e...",
   "network": "Mainnet",
+  "threshold": 2,
+  "share_count": 3,
+  "party_npubs": ["npubAAA", "npubBBB", "npubCCC"],
   "error": null
 }
 ```
+
+Notes:
+- `npub` inside each party appears when you pass `--partynpubs`.
+- The `npub` field is additional metadata; signing still accepts the file as-is, and extra fields are safely ignored by the signer.
+
+> Note: `parties` remains null unless you pass `--include-parties`. When `--partynpubs` is provided, the `party_npubs` array is included and ordered by party index (1 maps to index 0, etc.).
 
 **Error Output:**
 ```json
@@ -106,7 +129,7 @@ dkls23-cli --quiet sign \
 
 **Example 2: Sign with parties from stdin (pipe from DKG)**
 ```bash
-dkls23-cli --quiet dkg --threshold 2 --share-count 3 | \
+dkls23-cli --quiet dkg --threshold 2 --share-count 3 --include-parties | \
   jq -r '.parties' | \
   dkls23-cli --quiet sign \
     --executing-parties "1,2" \

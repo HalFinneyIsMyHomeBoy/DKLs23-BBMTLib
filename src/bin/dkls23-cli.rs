@@ -50,6 +50,10 @@ enum Commands {
         /// Include full parties data in output (default: summary only)
         #[arg(long)]
         include_parties: bool,
+
+        /// Comma-separated list of npubs to associate with parties (ordered by party index)
+        #[arg(long)]
+        partynpubs: Option<String>,
     },
     
     /// Create a threshold signature
@@ -80,17 +84,26 @@ enum Commands {
     },
 }
 
+#[derive(Serialize, Deserialize)]
+struct PartyWithNpub {
+    #[serde(flatten)]
+    party: Party,
+    npub: Option<String>,
+}
+
 /// JSON structure for DKG output (summary)
 #[derive(Serialize, Deserialize)]
 struct DkgOutput {
     success: bool,
-    parties: Option<Vec<Party>>,  // Only included if --include-parties is used
+    parties: Option<Vec<PartyWithNpub>>,  // Only included if --include-parties is used
     party_count: Option<u8>,
     error: Option<String>,
     bitcoin_address: Option<String>,
     network: Option<String>,
     threshold: Option<u8>,
     share_count: Option<u8>,
+    /// Optional mapping of party indices (1..n) to provided npubs, in order
+    party_npubs: Option<Vec<String>>,
 }
 
 /// JSON structure for signing output
@@ -111,8 +124,16 @@ fn main() {
     }
     
     let result = match &cli.command {
-        Commands::Dkg { threshold, share_count, session_id, network, include_parties } => {
-            handle_dkg(*threshold, *share_count, session_id, network, *include_parties, cli.quiet)
+        Commands::Dkg { threshold, share_count, session_id, network, include_parties, partynpubs } => {
+            handle_dkg(
+                *threshold,
+                *share_count,
+                session_id,
+                network,
+                *include_parties,
+                partynpubs,
+                cli.quiet,
+            )
         }
         Commands::Sign { 
             parties, 
@@ -162,6 +183,7 @@ fn handle_dkg(
     session_id: &str,
     network: &str,
     include_parties: bool,
+    partynpubs: &Option<String>,
     quiet: bool,
 ) -> Result<String, String> {
     // Parse network (currently only Mainnet is supported by the facade, but we'll document testnet3 for future)
@@ -178,6 +200,7 @@ fn handle_dkg(
                 network: None,
                 threshold: None,
                 share_count: None,
+                party_npubs: None,
             }).unwrap());
         }
     };
@@ -202,6 +225,7 @@ fn handle_dkg(
             network: None,
             threshold: None,
             share_count: None,
+            party_npubs: None,
         }).unwrap());
     }
     
@@ -218,6 +242,7 @@ fn handle_dkg(
             network: None,
             threshold: None,
             share_count: None,
+            party_npubs: None,
         }).unwrap());
     }
     
@@ -255,6 +280,7 @@ fn handle_dkg(
                     network: None,
                     threshold: None,
                     share_count: None,
+                    party_npubs: None,
                 }).unwrap());
             }
             
@@ -262,15 +288,63 @@ fn handle_dkg(
             let network_str = format!("{:?}", parties[0].network);
             let party_count = parties.len() as u8;
             
+            // Parse and validate npubs if provided
+            let party_npubs: Option<Vec<String>> = if let Some(npubs_str) = partynpubs {
+                let npubs: Vec<String> = npubs_str
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                if npubs.len() != share_count as usize {
+                    return Ok(serde_json::to_string_pretty(&DkgOutput {
+                        success: false,
+                        parties: None,
+                        party_count: None,
+                        error: Some(format!(
+                            "partynpubs count ({}) must equal share_count ({})",
+                            npubs.len(), share_count
+                        )),
+                        bitcoin_address: None,
+                        network: None,
+                        threshold: None,
+                        share_count: None,
+                        party_npubs: None,
+                    }).unwrap());
+                }
+
+                Some(npubs)
+            } else {
+                None
+            };
+
+            // Build parties with optional npub per index
+            let parties_with_npub: Option<Vec<PartyWithNpub>> = if include_parties {
+                let vec_with = parties
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, p)| PartyWithNpub {
+                        party: p,
+                        npub: party_npubs
+                            .as_ref()
+                            .and_then(|v| v.get(i).cloned()),
+                    })
+                    .collect();
+                Some(vec_with)
+            } else {
+                None
+            };
+
             Ok(serde_json::to_string_pretty(&DkgOutput {
                 success: true,
-                parties: if include_parties { Some(parties) } else { None },
+                parties: parties_with_npub,
                 party_count: Some(party_count),
                 error: None,
                 bitcoin_address: Some(bitcoin_address),
                 network: Some(network_str),
                 threshold: Some(threshold),
                 share_count: Some(share_count),
+                party_npubs,
             }).unwrap())
         }
         Err(abort) => Ok(serde_json::to_string_pretty(&DkgOutput {
@@ -282,6 +356,7 @@ fn handle_dkg(
             network: None,
             threshold: None,
             share_count: None,
+            party_npubs: None,
         }).unwrap()),
     }
 }
