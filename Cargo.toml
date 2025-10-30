@@ -27,9 +27,6 @@ serde_json = "1.0"
 version = "0.3"
 features = ["wasm_js"]
 
-[features]
-insecure-rng = []
-
 [[bin]]
 name = "dkls23-cli"
 path = "src/bin/dkls23-cli.rs"
