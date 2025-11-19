@@ -5,6 +5,7 @@
 
 use std::io::{self, Read};
 use std::path::PathBuf;
+use std::fs;
 
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -54,6 +55,14 @@ enum Commands {
         /// Comma-separated list of npubs to associate with parties (ordered by party index)
         #[arg(long)]
         partynpubs: Option<String>,
+
+        /// Comma-separated list of nsecs to associate with parties (ordered by party index)
+        #[arg(long)]
+        partynsecs: Option<String>,
+
+        /// Directory to write individual party files (named by npub)
+        #[arg(long)]
+        output_dir: Option<PathBuf>,
     },
     
     /// Create a threshold signature
@@ -89,6 +98,7 @@ struct PartyWithNpub {
     #[serde(flatten)]
     party: Party,
     npub: Option<String>,
+    nsec: Option<String>,
 }
 
 /// JSON structure for DKG output (summary)
@@ -124,7 +134,7 @@ fn main() {
     }
     
     let result = match &cli.command {
-        Commands::Dkg { threshold, share_count, session_id, network, include_parties, partynpubs } => {
+        Commands::Dkg { threshold, share_count, session_id, network, include_parties, partynpubs, partynsecs, output_dir } => {
             handle_dkg(
                 *threshold,
                 *share_count,
@@ -132,6 +142,8 @@ fn main() {
                 network,
                 *include_parties,
                 partynpubs,
+                partynsecs,
+                output_dir,
                 cli.quiet,
             )
         }
@@ -177,6 +189,16 @@ struct ErrorOutput {
     error: Option<String>,
 }
 
+/// Sanitize a string to be used as a filename
+fn sanitize_filename(name: &str) -> String {
+    name.chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .collect()
+}
+
 fn handle_dkg(
     threshold: u8,
     share_count: u8,
@@ -184,6 +206,8 @@ fn handle_dkg(
     network: &str,
     include_parties: bool,
     partynpubs: &Option<String>,
+    partynsecs: &Option<String>,
+    output_dir: &Option<PathBuf>,
     quiet: bool,
 ) -> Result<String, String> {
     // Parse network (currently only Mainnet is supported by the facade, but we'll document testnet3 for future)
@@ -318,7 +342,37 @@ fn handle_dkg(
                 None
             };
 
-            // Build parties with optional npub per index
+            // Parse and validate nsecs if provided
+            let party_nsecs: Option<Vec<String>> = if let Some(nsecs_str) = partynsecs {
+                let nsecs: Vec<String> = nsecs_str
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                if nsecs.len() != share_count as usize {
+                    return Ok(serde_json::to_string_pretty(&DkgOutput {
+                        success: false,
+                        parties: None,
+                        party_count: None,
+                        error: Some(format!(
+                            "partynsecs count ({}) must equal share_count ({})",
+                            nsecs.len(), share_count
+                        )),
+                        bitcoin_address: None,
+                        network: None,
+                        threshold: None,
+                        share_count: None,
+                        party_npubs: None,
+                    }).unwrap());
+                }
+
+                Some(nsecs)
+            } else {
+                None
+            };
+
+            // Build parties with optional npub and nsec per index
             let parties_with_npub: Option<Vec<PartyWithNpub>> = if include_parties {
                 let vec_with = parties
                     .into_iter()
@@ -328,12 +382,43 @@ fn handle_dkg(
                         npub: party_npubs
                             .as_ref()
                             .and_then(|v| v.get(i).cloned()),
+                        nsec: party_nsecs
+                            .as_ref()
+                            .and_then(|v| v.get(i).cloned()),
                     })
                     .collect();
                 Some(vec_with)
             } else {
                 None
             };
+
+            // Write individual party files if output_dir and npubs are provided
+            if let Some(output_dir_path) = output_dir {
+                if let Some(ref parties_vec) = parties_with_npub {
+                    // Create output directory if it doesn't exist
+                    fs::create_dir_all(output_dir_path)
+                        .map_err(|e| format!("Failed to create output directory: {}", e))?;
+
+                    for party_with_npub in parties_vec {
+                        if let Some(ref npub) = party_with_npub.npub {
+                            // Use npub as filename (sanitize for filesystem)
+                            let filename = sanitize_filename(npub);
+                            let file_path = output_dir_path.join(&filename);
+                            
+                            // Write party data to file
+                            let party_json = serde_json::to_string_pretty(party_with_npub)
+                                .map_err(|e| format!("Failed to serialize party: {}", e))?;
+                            
+                            fs::write(&file_path, party_json)
+                                .map_err(|e| format!("Failed to write party file {}: {}", file_path.display(), e))?;
+                            
+                            if !quiet {
+                                eprintln!("💾 Wrote party file: {}", file_path.display());
+                            }
+                        }
+                    }
+                }
+            }
 
             Ok(serde_json::to_string_pretty(&DkgOutput {
                 success: true,
