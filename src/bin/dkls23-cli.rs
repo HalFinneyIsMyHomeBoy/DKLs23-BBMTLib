@@ -29,7 +29,40 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Run Distributed Key Generation (DKG)
+    /// Run Distributed Key Generation (DKG) - share_count is derived from partynpubs
+    Keygen {
+        /// Threshold value (t) - minimum number of parties needed to sign
+        #[arg(long)]
+        threshold: u8,
+        
+        /// Session ID as hex-encoded string
+        #[arg(long, default_value = "")]
+        session_id: String,
+        
+        /// Network type: "mainnet" or "testnet3"
+        #[arg(long, default_value = "mainnet")]
+        network: String,
+        
+        /// Include full parties data in output (default: summary only)
+        #[arg(long)]
+        include_parties: bool,
+
+        /// Comma-separated list of npubs to associate with parties (ordered by party index)
+        /// Share count is automatically determined from the number of npubs provided
+        #[arg(long)]
+        partynpubs: String,
+
+        /// The nsec (private key) for this party calling the command
+        #[arg(long)]
+        nsec: Option<String>,
+
+        /// The party index (1-based) for this party calling the command
+        /// Required when nsec is provided
+        #[arg(long)]
+        party_index: Option<u8>,
+    },
+    
+    /// Run Distributed Key Generation (DKG) - legacy command with explicit share_count
     Dkg {
         /// Threshold value (t) - minimum number of parties needed to sign
         #[arg(long)]
@@ -54,6 +87,15 @@ enum Commands {
         /// Comma-separated list of npubs to associate with parties (ordered by party index)
         #[arg(long)]
         partynpubs: Option<String>,
+
+        /// The nsec (private key) for this party calling the command
+        #[arg(long)]
+        nsec: Option<String>,
+
+        /// The party index (1-based) for this party calling the command
+        /// Required when nsec is provided
+        #[arg(long)]
+        party_index: Option<u8>,
     },
     
     /// Create a threshold signature
@@ -89,6 +131,9 @@ struct PartyWithNpub {
     #[serde(flatten)]
     party: Party,
     npub: Option<String>,
+    nsec: Option<String>,
+    /// Array of all party npubs (ordered by party index 1..n)
+    party_npubs: Option<Vec<String>>,
 }
 
 /// JSON structure for DKG output (summary)
@@ -124,7 +169,38 @@ fn main() {
     }
     
     let result = match &cli.command {
-        Commands::Dkg { threshold, share_count, session_id, network, include_parties, partynpubs } => {
+        Commands::Keygen { threshold, session_id, network, include_parties, partynpubs, nsec, party_index } => {
+            // Derive share_count from the number of partynpubs
+            let npubs: Vec<&str> = partynpubs.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+            let share_count = npubs.len() as u8;
+            
+            if share_count == 0 {
+                Ok(serde_json::to_string_pretty(&DkgOutput {
+                    success: false,
+                    parties: None,
+                    party_count: None,
+                    error: Some("partynpubs cannot be empty".to_string()),
+                    bitcoin_address: None,
+                    network: None,
+                    threshold: None,
+                    share_count: None,
+                    party_npubs: None,
+                }).unwrap())
+            } else {
+                handle_dkg(
+                    *threshold,
+                    share_count,
+                    session_id,
+                    network,
+                    *include_parties,
+                    &Some(partynpubs.clone()),
+                    nsec.as_ref(),
+                    *party_index,
+                    cli.quiet,
+                )
+            }
+        }
+        Commands::Dkg { threshold, share_count, session_id, network, include_parties, partynpubs, nsec, party_index } => {
             handle_dkg(
                 *threshold,
                 *share_count,
@@ -132,6 +208,8 @@ fn main() {
                 network,
                 *include_parties,
                 partynpubs,
+                nsec.as_ref(),
+                *party_index,
                 cli.quiet,
             )
         }
@@ -184,6 +262,8 @@ fn handle_dkg(
     network: &str,
     include_parties: bool,
     partynpubs: &Option<String>,
+    nsec: Option<&String>,
+    party_index: Option<u8>,
     quiet: bool,
 ) -> Result<String, String> {
     // Parse network (currently only Mainnet is supported by the facade, but we'll document testnet3 for future)
@@ -318,16 +398,67 @@ fn handle_dkg(
                 None
             };
 
-            // Build parties with optional npub per index
+            // Validate party_index if nsec is provided
+            if let Some(nsec_val) = nsec {
+                if let Some(idx) = party_index {
+                    if idx == 0 || idx > share_count {
+                        return Ok(serde_json::to_string_pretty(&DkgOutput {
+                            success: false,
+                            parties: None,
+                            party_count: None,
+                            error: Some(format!(
+                                "Invalid party_index {}: must be between 1 and {}",
+                                idx, share_count
+                            )),
+                            bitcoin_address: None,
+                            network: None,
+                            threshold: None,
+                            share_count: None,
+                            party_npubs: None,
+                        }).unwrap());
+                    }
+                } else {
+                    return Ok(serde_json::to_string_pretty(&DkgOutput {
+                        success: false,
+                        parties: None,
+                        party_count: None,
+                        error: Some("party_index is required when nsec is provided".to_string()),
+                        bitcoin_address: None,
+                        network: None,
+                        threshold: None,
+                        share_count: None,
+                        party_npubs: None,
+                    }).unwrap());
+                }
+            }
+
+            // Build parties with optional npub and nsec per index
             let parties_with_npub: Option<Vec<PartyWithNpub>> = if include_parties {
+                let nsec_value = nsec.cloned();
+                let party_idx = party_index.map(|idx| (idx - 1) as usize); // Convert to 0-based index
                 let vec_with = parties
                     .into_iter()
                     .enumerate()
-                    .map(|(i, p)| PartyWithNpub {
-                        party: p,
-                        npub: party_npubs
-                            .as_ref()
-                            .and_then(|v| v.get(i).cloned()),
+                    .map(|(i, p)| {
+                        // Only include nsec for the party that matches the provided party_index
+                        let party_nsec = if let (Some(nsec_val), Some(idx)) = (&nsec_value, &party_idx) {
+                            if i == *idx {
+                                Some(nsec_val.clone())
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        
+                        PartyWithNpub {
+                            party: p,
+                            npub: party_npubs
+                                .as_ref()
+                                .and_then(|v| v.get(i).cloned()),
+                            nsec: party_nsec,
+                            party_npubs: party_npubs.clone(),
+                        }
                     })
                     .collect();
                 Some(vec_with)
