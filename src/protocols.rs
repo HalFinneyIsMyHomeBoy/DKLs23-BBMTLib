@@ -21,6 +21,7 @@ pub enum Network {
 
 pub mod derivation;
 pub mod dkg;
+pub mod dkg_distributed;
 pub mod re_key;
 pub mod refresh;
 pub mod signing;

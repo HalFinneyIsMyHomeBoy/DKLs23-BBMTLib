@@ -27,6 +27,31 @@ A complete example that demonstrates:
 cargo run --example basic_usage
 ```
 
+### 3. Distributed DKG (`distributed_dkg.rs`)
+An example demonstrating distributed DKG where each party runs as a separate process.
+This shows how to:
+- Initialize each party independently
+- Generate keyshares locally on each party's machine
+- Exchange messages between parties (simulated in this example)
+- Complete DKG with parties running on different machines
+
+**Key Features:**
+- Each party maintains its own state machine
+- Messages are serializable (can be sent over network)
+- Parties can run concurrently on different machines
+- Each party generates its own keyshare locally
+
+**Run with:**
+```bash
+cargo run --example distributed_dkg
+```
+
+**Note:** In a real deployment, each party would:
+1. Run as a separate process/machine
+2. Communicate via network (HTTP, gRPC, WebSockets, etc.)
+3. Serialize messages using serde (JSON, bincode, MessagePack, etc.)
+4. Handle network errors and retries appropriately
+
 ## Prerequisites
 
 Before running the examples, make sure you have:
