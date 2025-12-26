@@ -13,12 +13,12 @@ use time::Instant;
 
 fn main() -> Result<(), String> {
     let start = Instant::now();
-    let params = Parameters { threshold: 7, share_count: 10 }; // 7-of-10 threshold scheme
+    let params = Parameters { threshold: 2, share_count: 3 }; // 40-of-50 threshold scheme
     let parties = run_dkg_offline(&params, b"example_session").map_err(|e| format!("dkg failed: {}", e.description))?;
     let msg = hash(b"Hello, Threshold ECDSA!", &[]); // test message to sign
 
     // sign with 7 parties
-    let (r, s, recid) = threshold_sign(&parties, &[1, 2, 3, 4, 5, 6, 7], b"sign_session", msg, true) 
+    let (r, s, recid) = threshold_sign(&parties, &[1, 2], b"sign_session", msg, true) 
         .map_err(|e| format!("sign failed: {}", e.description))?;
 
     // print the signature and address to verify success
