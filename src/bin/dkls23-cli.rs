@@ -4,7 +4,8 @@
 //! All input and output uses JSON format for easy integration.
 
 use std::io::{self, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::fs;
 
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -50,6 +51,10 @@ enum Commands {
         /// Include full parties data in output (default: summary only)
         #[arg(long)]
         include_parties: bool,
+        
+        /// Directory to save individual keyshare files (default: current directory)
+        #[arg(long)]
+        output_dir: Option<PathBuf>,
     },
     
     /// Create a threshold signature
@@ -91,6 +96,7 @@ struct DkgOutput {
     network: Option<String>,
     threshold: Option<u8>,
     share_count: Option<u8>,
+    saved_files: Option<Vec<String>>,  // Paths to saved keyshare files
 }
 
 /// JSON structure for signing output
@@ -111,8 +117,8 @@ fn main() {
     }
     
     let result = match &cli.command {
-        Commands::Dkg { threshold, share_count, session_id, network, include_parties } => {
-            handle_dkg(*threshold, *share_count, session_id, network, *include_parties, cli.quiet)
+        Commands::Dkg { threshold, share_count, session_id, network, include_parties, output_dir } => {
+            handle_dkg(*threshold, *share_count, session_id, network, *include_parties, output_dir.as_ref(), cli.quiet)
         }
         Commands::Sign { 
             parties, 
@@ -162,6 +168,7 @@ fn handle_dkg(
     session_id: &str,
     network: &str,
     include_parties: bool,
+    output_dir: Option<&PathBuf>,
     quiet: bool,
 ) -> Result<String, String> {
     // Parse network (currently only Mainnet is supported by the facade, but we'll document testnet3 for future)
@@ -178,6 +185,7 @@ fn handle_dkg(
                 network: None,
                 threshold: None,
                 share_count: None,
+                saved_files: None,
             }).unwrap());
         }
     };
@@ -202,6 +210,7 @@ fn handle_dkg(
             network: None,
             threshold: None,
             share_count: None,
+            saved_files: None,
         }).unwrap());
     }
     
@@ -218,6 +227,7 @@ fn handle_dkg(
             network: None,
             threshold: None,
             share_count: None,
+            saved_files: None,
         }).unwrap());
     }
     
@@ -255,8 +265,13 @@ fn handle_dkg(
                     network: None,
                     threshold: None,
                     share_count: None,
+                    saved_files: None,
                 }).unwrap());
             }
+            
+            // Save each party's keyshare to a file
+            let output_path = output_dir.as_deref().map_or(Path::new("."), |v| v);
+            let saved_files = save_keyshares(&parties, output_path, quiet)?;
             
             let bitcoin_address = parties[0].btc_address.clone();
             let network_str = format!("{:?}", parties[0].network);
@@ -271,6 +286,7 @@ fn handle_dkg(
                 network: Some(network_str),
                 threshold: Some(threshold),
                 share_count: Some(share_count),
+                saved_files: Some(saved_files),
             }).unwrap())
         }
         Err(abort) => Ok(serde_json::to_string_pretty(&DkgOutput {
@@ -282,8 +298,46 @@ fn handle_dkg(
             network: None,
             threshold: None,
             share_count: None,
+            saved_files: None,
         }).unwrap()),
     }
+}
+
+/// Save each party's keyshare to a separate file
+fn save_keyshares(parties: &[Party], output_dir: &Path, quiet: bool) -> Result<Vec<String>, String> {
+    // Create output directory if it doesn't exist
+    if !output_dir.exists() {
+        fs::create_dir_all(output_dir)
+            .map_err(|e| format!("Failed to create output directory '{}': {}", output_dir.display(), e))?;
+    }
+    
+    if !output_dir.is_dir() {
+        return Err(format!("Output path '{}' is not a directory", output_dir.display()));
+    }
+    
+    let mut saved_files = Vec::new();
+    
+    for party in parties {
+        let filename = format!("party_{}.json", party.party_index);
+        let file_path = output_dir.join(&filename);
+        
+        let json = serde_json::to_string_pretty(party)
+            .map_err(|e| format!("Failed to serialize party {}: {}", party.party_index, e))?;
+        
+        fs::write(&file_path, json)
+            .map_err(|e| format!("Failed to write keyshare file '{}': {}", file_path.display(), e))?;
+        
+        // Try to get absolute path for clarity in output
+        let display_path = file_path.canonicalize()
+            .unwrap_or_else(|_| file_path.clone());
+        saved_files.push(display_path.to_string_lossy().to_string());
+        
+        if !quiet {
+            eprintln!("💾 Saved keyshare for party {} to {}", party.party_index, file_path.display());
+        }
+    }
+    
+    Ok(saved_files)
 }
 
 fn handle_sign(
